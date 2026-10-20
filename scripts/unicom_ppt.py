@@ -64,6 +64,7 @@ GRAY = "7F7F7F"        # 注释、来源
 MID = "A6A6A6"         # 目录非当前项、中性图表系列
 LINE = "D9D9D9"        # 边框、分隔线
 LIGHT = "F2F2F2"       # 浅灰底板
+SOFT = "F7F7F7"        # 更浅的卡片底色（演示类页面用，比 LIGHT 轻）
 WARM = "F1EBE9"        # 母版暖灰（分隔页底色）
 LIGHT_RED = "FBE9E9"   # 浅红底板
 PINK = "F4C7C7"        # 浅红强调/分层
@@ -81,6 +82,7 @@ TAG_STYLE = {
     "green": {"color": GREEN, "bold": True},
     "blue": {"color": BLUE},
     "gray": {"color": GRAY},
+    "dark": {"color": DARK},
 }
 
 # ---------------------------------------------------------------- 版面网格（英寸）
@@ -518,7 +520,7 @@ def _shrink_to_fit(shape, min_size, h_in=None):
     while need > avail + 0.01:
         rprs = txBody.findall(".//" + qn("a:rPr")) + txBody.findall(".//" + qn("a:endParaRPr"))
         sizes = [int(r.get("sz")) for r in rprs if r.get("sz")]
-        if not sizes or max(sizes) - 50 < min_size * 100:
+        if not sizes or min(sizes) - 50 < min_size * 100:      # 任何文字都不缩到下限以下（宁可报溢出）
             return False, need, shrunk
         for r in rprs:
             if r.get("sz"):
@@ -745,6 +747,78 @@ class Page:
                 self.kpi(vx, ry + 0.1, value_w, rh - 0.2, lab or "", value, judge=judge, fill=WHITE,
                          align="c", value_size=28)
         return y + h
+
+    # ---------- 演示类页面的轻量组件（培训、沙龙、方案宣讲：少色块、多留白）
+    def card(self, x, y, w, h, title, body=None, num=None, highlight=False, fill=SOFT, title_size=17,
+             body_size=14, tag=None, accent=True, anchor="t", reserve=0):
+        """信息卡片：浅底、左上角红色短线（或红色编号）、加粗标题、灰色说明，统一左对齐、顶端对齐。
+
+        body:      说明文字，字符串或列表（每项一段；以 "- " 开头为圆点列表项）
+        num:       可选编号（如 "01"），代替红色短线
+        highlight: True 时用浅红底突出（每页最多一张）
+        tag:       可选的右上角小标签（如「今天实战演示」）
+        accent:    是否画左上角红色短线（卡片网格里建议关掉，避免满屏红线）
+        anchor:    文字的垂直位置，默认顶端对齐（同排卡片标题对齐）
+        reserve:   卡片底部留给其他元素（如例子框）的高度，文字区不会延伸进去
+        返回文字框。"""
+        pad = 0.28
+        self.box(x, y, w, h, fill=LIGHT_RED if highlight else fill, line=None)
+        cy = y + pad
+        if num is not None:
+            self.text(x + pad, cy - 0.05, 1.2, 0.5, f"<red>{num}</red>", size=24, bold=True, margin=0, fit=False)
+            cy += 0.55
+        elif accent:
+            self.box(x + pad, cy, 0.42, 0.06, fill=RED, line=None)
+            cy += 0.22
+        if tag:                                          # 标签单独占一行，不与标题重叠
+            pill_y = cy if anchor == "t" else None
+            cy += 0.42
+        lines = body if isinstance(body, (list, tuple)) else ([body] if body else [])
+        paras = [f"<b>{title}</b>"] + [f"- <dark>{ln[2:]}</dark>" if ln.startswith("- ") else f"<dark>{ln}</dark>"
+                                       for ln in lines]
+        bullets = [None] + ["dot" if ln.startswith("- ") else None for ln in lines]
+        sizes = [title_size] + [body_size] * len(lines)
+        tb = self.text(x + pad, cy, w - 2 * pad, y + h - pad - reserve - cy, paras, size=body_size, color=TEXT,
+                       sizes=sizes, line_spacing=1.3, space_after=4, bullets=bullets, margin=0, min_size=11,
+                       anchor=anchor)
+        if tag:
+            if pill_y is None:                           # 垂直居中时，标签贴在文字块正上方
+                need = estimate_tf_height(tb._element.find(qn("p:txBody")), tb.width)
+                avail = y + h - pad - reserve - cy
+                pill_y = cy + max(0, (avail - need) / 2) - 0.42
+            self.pill(x + pad, pill_y, tag, fill=RED if highlight else LIGHT_RED, color=WHITE if highlight else RED)
+        return tb
+
+    def pill(self, x, y, text, fill=LIGHT_RED, color=RED, size=11):
+        """小标签（胶囊形），用于「今天实战演示」「示例」等提示。"""
+        w = sum(_char_em(c) for c in strip_markup(text)) * size / 72 + 0.3
+        return self.box(x, y, w, 0.3, text, fill=fill, line=None, color=color, size=size, bold=True, align="c",
+                        anchor="m", shape="pill", margin=0.04, fit=False)
+
+    def steps(self, x, y, w, items, colors=None, d=0.52, title_size=16, desc_size=13, gap=0.3, desc_h=None):
+        """横向时间线：编号圆点 + 细连线 + 标题 + 说明。比燕尾箭头轻，适合演示类页面。
+
+        items:  [(标题, 说明) 或 标题, ...]，3–6 个
+        colors: 每个圆点的颜色（默认全红）；例如人做的步骤用 MID、AI 做的用 RED，一眼看出分工
+        返回 (各列 [(x, w)], 下方可用 y)。"""
+        n = len(items)
+        if not 2 <= n <= 7:
+            raise ValueError(f"steps() 支持 2–7 个步骤，收到 {n} 个")
+        colors = colors or [RED] * n
+        cols = self.cols(n, x, w, gap=gap)
+        centers = [cx + cw / 2 for cx, cw in cols]
+        self.line(centers[0], y + d / 2, centers[-1], y + d / 2, color=LINE, width=2)
+        ty = y + d + 0.15
+        has_desc = any(not isinstance(it, str) and len(it) > 1 and it[1] for it in items)
+        dh = desc_h if desc_h is not None else (0.75 if has_desc else 0)
+        for i, ((cx, cw), it, clr) in enumerate(zip(cols, items, colors)):
+            t, desc = (it, None) if isinstance(it, str) else (list(it) + [None])[:2]
+            self.badge(centers[i] - d / 2, y, d, i + 1, fill=clr, size=15)
+            self.text(cx, ty, cw, 0.42, f"<b>{t}</b>", size=title_size, color=TEXT, align="c", anchor="m", min_size=12)
+            if desc:
+                self.text(cx, ty + 0.44, cw, dh, desc, size=desc_size, color=DARK, align="c", line_spacing=1.3,
+                          min_size=10)
+        return cols, ty + 0.44 + dh
 
     def badge(self, x, y, d, text, fill=RED, color=WHITE, size=12):
         """圆形序号徽标。"""
@@ -1691,7 +1765,7 @@ def lint(path):
                 txt = shp.text_frame.text.strip()
                 if bad_words.search(txt):
                     out.append(f"第{si}页：残留占位/待补充文字「{txt[:20]}」")
-                if re.search(r"</?(?:b|good|bad|red|green|blue|gray)>", txt):
+                if re.search(r"</?(?:b|good|bad|red|green|blue|gray|dark)>", txt):
                     out.append(f"第{si}页：「{txt[:20]}」中出现未解析的标记标签（该参数可能不支持标记）")
                 for r in shp._element.iter(qn("a:rPr")):
                     if r.get("sz") and int(r.get("sz")) < 900:

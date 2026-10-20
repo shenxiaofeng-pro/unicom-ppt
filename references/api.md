@@ -15,7 +15,7 @@ from unicom_ppt import *
 | `T` `B` | 1.05 / 6.85 | 内容区上边界（标题线下方）、下边界（页码和来源上方） |
 | `W` `H` | 12.73 / 5.80 | 内容区宽、高 |
 
-颜色常量：`RED`(=`GOOD`) `GREEN`(=`BAD`) `BLACK` `TEXT` `DARK` `GRAY` `MID` `LINE` `LIGHT` `WARM` `LIGHT_RED` `PINK` `BLUE` `LIGHT_BLUE` `WHITE`，色值见 SKILL.md。
+颜色常量：`RED`(=`GOOD`) `GREEN`(=`BAD`) `BLACK` `TEXT` `DARK` `GRAY` `MID` `LINE` `LIGHT` `SOFT` `WARM` `LIGHT_RED` `PINK` `BLUE` `LIGHT_BLUE` `WHITE`，色值见 SKILL.md。
 `SERIES = [RED, MID, DARK, PINK, BLUE]` 是多系列图表的默认配色。
 
 ## 文字标记
@@ -25,7 +25,7 @@ from unicom_ppt import *
 
 ```
 <b>加粗</b>   <good>好·红</good>   <bad>差·绿</bad>   <red>强调红</red>
-<green>绿</green>   <blue>蓝</blue>   <gray>灰</gray>
+<green>绿</green>   <blue>蓝</blue>   <gray>灰</gray>   <dark>深灰</dark>
 ```
 
 - 标记可以嵌套。分段用 `"\n"`，或直接传字符串列表。
@@ -113,6 +113,18 @@ python build_report.py --upto 3 --no-render   # 跳过渲染（没有 PowerPoint
 | `loop(src, dst, top, text=None, depth=0.3, color=RED, width=1.25, text_size=11)` | 反馈闭环：从 `src` 列底部引出红色虚线，沿下方横线回到 `dst` 列底部（带箭头）。`src` / `dst` 为 `(x, w)`，通常取自 `chevrons()` 的返回值；`top` 为内容底边。**返回下方 y** |
 | `block_arrow(x, y, w, h, direction="right", fill=PINK, text="", color=TEXT, size=11)` | 粗箭头，方向可选 right / down / left / up |
 | `chevrons(x, y, w, h, steps, fill=RED, color=WHITE, size=14, gap=0.25, active=None, inactive=MID, ratios=None)` | 横向阶段链。`ratios` 可指定各列宽度比例（默认等宽）。**返回与各节点对齐的内容列** `[(x, w), …]`，可直接用来在下方排布内容 |
+
+## Page：演示类组件（培训、沙龙、方案宣讲）
+
+演示类页面的风格：红色只做点缀（编号、细线、关键字），信息用浅底卡片承载，流程用时间线，每页一个视觉重点。经营分析类报告仍以表格、图表为主。
+
+| 方法 | 说明 |
+|---|---|
+| `card(x, y, w, h, title, body=None, num=None, highlight=False, fill=SOFT, title_size=17, body_size=14, tag=None, accent=True, anchor="t", reserve=0)` | 信息卡片：浅底、加粗标题、深灰说明，左对齐。`num` 为红色大编号（如 `"01"`）；`highlight=True` 用浅红底突出（每页最多一张）；`tag` 为标题上方的小标签（占一行，卡片矮时改用标题里的红字）；`accent=False` 去掉红色短线（卡片网格里建议关掉）；`anchor="m"` 内容垂直居中；`reserve` 为底部留给其他元素的高度。`body` 中以 `"- "` 开头的项显示为圆点列表 |
+| `steps(x, y, w, items, colors=None, d=0.52, title_size=16, desc_size=13, gap=0.3, desc_h=None)` | 横向时间线：编号圆点 + 细连线 + 标题 + 说明，比燕尾箭头轻。`items = [(标题, 说明) 或 标题, …]`，2–7 个；`colors` 逐个指定圆点颜色，例如人做的步骤用 `MID`、AI 做的用 `RED`，分工一目了然。**返回 `(各列 [(x, w)], 下方 y)`** |
+| `pill(x, y, text, fill=LIGHT_RED, color=RED, size=11)` | 胶囊形小标签，用于「今天实战演示」「示例」等提示 |
+
+同排卡片的标题要对齐：内容多少不一时用默认的顶端对齐；每张内容相近时才用 `anchor="m"`。卡片里字被自动缩小时，先删字或去掉 `accent` 短线、`tag` 标签，不要硬塞。
 
 ## Page：逻辑关系组件
 
