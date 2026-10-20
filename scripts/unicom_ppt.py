@@ -495,11 +495,25 @@ def _frame(tf, margin=0.06, anchor="t", wrap=True):
     tf.vertical_anchor = _anchor(anchor)
 
 
+def _text_width(shape):
+    """可放文字的宽度（EMU）：燕尾形、五边形的预设几何本身会内缩文字区，要扣掉。"""
+    w = shape.width
+    geom = shape._element.find(".//" + qn("a:prstGeom"))
+    if geom is None or geom.get("prst") not in ("chevron", "homePlate"):
+        return w
+    gd = geom.find(".//" + qn("a:gd"))
+    adj = 50000
+    if gd is not None and gd.get("fmla", "").startswith("val "):
+        adj = int(gd.get("fmla")[4:])
+    notch = min(shape.width, shape.height) * adj / 100000
+    return int(w - (2 * notch if geom.get("prst") == "chevron" else notch / 2))
+
+
 def _shrink_to_fit(shape, min_size, h_in=None):
     """按估算结果逐步缩小字号直到放得下；返回 (是否放得下, 所需高度, 缩小的磅数)。"""
     txBody = shape._element.find(qn("p:txBody"))
     avail = h_in if h_in is not None else shape.height / EMU
-    need = estimate_tf_height(txBody, shape.width)
+    need = estimate_tf_height(txBody, _text_width(shape))
     shrunk = 0.0
     while need > avail + 0.01:
         rprs = txBody.findall(".//" + qn("a:rPr")) + txBody.findall(".//" + qn("a:endParaRPr"))
@@ -510,7 +524,7 @@ def _shrink_to_fit(shape, min_size, h_in=None):
             if r.get("sz"):
                 r.set("sz", str(max(int(r.get("sz")) - 50, 600)))
         shrunk += 0.5
-        need = estimate_tf_height(txBody, shape.width)
+        need = estimate_tf_height(txBody, _text_width(shape))
     return True, need, shrunk
 
 
@@ -831,7 +845,7 @@ class Page:
             shp.fill.solid()
             shp.fill.fore_color.rgb = _rgb(fill if active is None or i == active else inactive)
             shp.line.fill.background()
-            _frame(shp.text_frame, (notch + 0.04 if i else 0.08, 0.02, notch + 0.04, 0.02), "m")
+            _frame(shp.text_frame, (0.06, 0.02, 0.06, 0.02), "m")    # 形状几何已内缩尖角，不再重复留边
             write_text(shp.text_frame, s, size, color, True, "c", 1.0)
             _shrink_to_fit(shp, 9)
         return columns
@@ -968,6 +982,9 @@ class Page:
                         dLbl.find(qn("c:idx")).addnext(nf)
                     nf.set("formatCode", number_format)
                     nf.set("sourceLinked", "0")
+        for dpt in ch._chartSpace.iter(qn("c:dPt")):     # 点级着色也要禁止「负值反色」，否则负值柱会变成白色
+            if dpt.find(qn("c:invertIfNegative")) is None:
+                dpt.find(qn("c:idx")).addnext(etree.Element(qn("c:invertIfNegative"), val="0"))
         va, ca = ch.value_axis, ch.category_axis
         va.has_major_gridlines = False
         va.visible = axis
@@ -1684,8 +1701,8 @@ def lint(path):
                 bodyPr = body.find(qn("a:bodyPr"))
                 if bodyPr is not None and bodyPr.get("wrap") == "none":
                     continue
-                need = estimate_tf_height(body, shp.width)
-                for o in find_orphans(body, shp.width):
+                need = estimate_tf_height(body, _text_width(shp))
+                for o in find_orphans(body, _text_width(shp)):
                     out.append(f"第{si}页：「{o}…」末行可能只剩1–2个字（孤字），可微调措辞或框宽（估算，以渲染为准）")
                 auto = bodyPr is not None and bodyPr.find(qn("a:spAutoFit")) is not None
                 if auto:

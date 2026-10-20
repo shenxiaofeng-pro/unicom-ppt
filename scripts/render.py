@@ -18,7 +18,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import tempfile
 
 
 LAST_ERROR = []          # 最近一次转换失败的原因（找到了工具但转换没成功）
@@ -39,18 +38,21 @@ def to_pdf(pptx, out_dir):
             return pdf, "LibreOffice"
 
     if platform.system() == "Darwin" and os.path.exists("/Applications/Microsoft PowerPoint.app"):
-        # PowerPoint 在沙盒中运行，先复制到临时目录再导出。
-        # 文件名每次唯一（PowerPoint 不能同时打开两个同名文件）；
-        # 导出前先关掉以前残留的临时副本（路径含 unicom_render_），只关自己的，不碰用户打开的文件。
-        tmp = tempfile.mkdtemp(prefix="unicom_render_")
-        tag = os.path.basename(tmp)
-        src = os.path.join(tmp, f"{tag}.pptx")
-        dst = os.path.join(tmp, f"{tag}.pdf")
+        # PowerPoint 是沙盒应用，每访问一个新目录都会弹窗请求授权，弹窗未处理时所有自动化都会失败（-9074）。
+        # 所以副本固定放在输出目录下、使用固定文件名：每个目录只需授权一次。
+        # 导出前先关掉以前残留的渲染副本（只关自己的，不碰用户打开的文件）。
+        work = os.path.abspath(out_dir)
+        src = os.path.join(work, "_unicom_render_src.pptx")
+        dst = os.path.join(work, "_unicom_render_out.pdf")
+        for f in (src, dst):
+            if os.path.exists(f):
+                os.remove(f)
         shutil.copy(pptx, src)
         script = f'''
         tell application "Microsoft PowerPoint"
             repeat with i from (count of presentations) to 1 by -1
-                if full name of presentation i contains "unicom_render_" then close presentation i saving no
+                set fn to full name of presentation i
+                if fn contains "_unicom_render_src" or fn contains "unicom_render_" then close presentation i saving no
             end repeat
             open POSIX file "{src}"
             set target to missing value
@@ -75,9 +77,13 @@ def to_pdf(pptx, out_dir):
                 err = "PowerPoint 响应超时"
             if os.path.exists(dst):
                 shutil.move(dst, pdf)
+                os.remove(src)
                 return pdf, "PowerPoint (macOS)"
+        if os.path.exists(src):
+            os.remove(src)
         LAST_ERROR.append(f"PowerPoint (macOS) 转换失败：{err or '未知原因'}。"
-                          "请检查 PowerPoint 是否有弹窗（如修复提示、登录框），关闭后重试。")
+                          f"请检查 PowerPoint 是否弹窗：如果是请求访问「{work}」的授权，请点「允许」（每个目录只需一次）；"
+                          "其他弹窗（登录、更新、修复提示）关闭后重试。")
 
     if platform.system() == "Windows":
         ps = f'''
